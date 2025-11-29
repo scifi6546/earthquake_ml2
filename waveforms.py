@@ -19,10 +19,186 @@ class WaveformNotFound(Exception):
         return f"{self._stationName}, ({self._startTime}-{self._endTime}) not found"
     def __str__(self):
         return self._getMessage()
+class InvalidStation(Exception):
+    _station_name: str
+    def __init__(self, station_name: str):
+        self._station_name = station_name
+        super().__init__()
+    def _getMessage(self) -> str:
+        return f"station {self._station_name} is invalid"
+    def __str__(self):
+        return self._getMessage()
 WAVEFORMS_DATABASE = "waveforms.db"
 def get_stream(station_name, channel: Optional[str], start_time, end_time):
-    def get_format_string(station_name, channel, start_time, end_time):
-        network_str = "net=AK"
+    def is_station_valid(station_name: str) -> str:
+        INVALID_STATIONS = ["TT01"]
+        if station_name in INVALID_STATIONS:
+            return False
+        else:
+            return True
+    def get_network_code(station_name: str) -> str:
+        """
+        Some stations are not operated by the AEC, therefore we have to manually map them
+        """
+        STATION_MAPPINGS = {
+            "ACH": "AV",
+            "ADAG": "AV",
+            "ADK":"IU",
+            'AHB': "AV",
+            "AKBB": "AV",
+            "AKGG": "AV",
+            "AKHS": "AV",
+            "AKLV": "AV",
+            "AKMO": "AV",
+            "AKRB": "AV",
+            "AKS": "AV",
+            "BPBC": "AV",
+            "BPPC": "AV",
+            "BRPK": "AV",
+
+            "AKSA": "AV",
+            "AKUT": "AT",
+            "AKT": "AV",
+            "AKV": "AV",
+            "AMKA": "AV",
+            "ANCK": "AV",
+            "AU22": "AV",
+            "AUCH": "AV",
+            "AUJA": "AV",
+            "AUL":"AV",
+            "AUNO": "AV",
+            "AUSB": "AV",
+            "AUSS": "AV",
+            "AUW": "AV",
+            "AUWS": "AV",
+            "AULG": "AV",
+            "CAHL": "AV",
+            "DRR3": "AV",
+            "DT1": "AV",
+            "DTN": "AV",
+            "HAG": "AV",
+            "ILS": "AV",
+            "ILSW": "AV",
+            "ILW": "AV",
+            "INE":"AV",
+            "ISNN":"AV",
+            "ISTK": "AV",
+
+            "IVE": "AV",
+            "IVS": "AV",
+            "KAB2": "AV",
+            "KABR": "AV",
+            "KABU": "AV",
+            "KAHC": "AV",
+            "KAHG": "AV",
+
+            "KAG": "AV",
+            "KAKN": "AV",
+            "KAPH": "AV",
+            "KAPI": "AV",
+            "KARR": "AV",
+            "KAVE":"AV",
+            "KAWS": "AV",
+            "KAWH": "AV",
+            "KBM": "AV",
+            "KCE": "AV",
+            "KDAK":"II",
+            "KJL": "AV",
+            "KEL": "AV",
+            "KVT": "AV",
+            "M22K": "TA",
+            "MID": "AT",
+            
+            "Q23K": "TA", # before 2019 afterwards it is AK, need to figure out error handling somehow
+            "RDDF": "AV",
+            "RDJH": "AV",
+            "RDSO": "AV",
+            "RDT": "AV",
+            "RDW":"AV",
+            "RDWB": "AV",
+            "RED": "AV",
+            "SDPT": "AT",
+            "SPBG": "AV",
+            "SPBL": "AV",
+            "SPCG": "AV",
+            "SPCL": "AV",
+            "SPCN": "AV",
+            "SPCP": "AV",
+            "SPNN": "AV",
+            "SPNW": "AV",
+            "SPU": "AV",
+            "SPWE": "AV",
+            "SPWE": "AV",
+            "SSBA": "AV",
+            "SSLN": "AV",
+            "SSLN": "AV",
+            "SSLW": "AV",
+            "STLK": "AV",
+            "NCT": "AV",
+            "MAPS": "AV",
+            "MGLS": "AV",
+            "MGOD": "AV",
+            "MNAT": "AV",
+            "MSW": "AV",
+            "OHAK": "AT",
+            "O22K": "TA",
+            "OPT": "AV",
+            "PLK1": "AV",
+            "PLK2": "AV",
+            "PLK3": "AV",
+            "PLK5": "AV",
+            "PLBL": "AV",
+            "PMR": "AT",
+            "PS1A": "AV",
+            "PS4A": "AV",
+            "PV6A": "AV",
+            "PVV": "AV",
+
+            "SVW2": "AT",
+            "SDPI": "AV",
+            "SPDG": "AV",
+            
+            "SPCG": "AV",
+            "SPCL": "AV",
+            "SPCN": "AV",
+            "SPCR": "AV",
+            "SPCP": "AV",
+            
+            "SSBA": "AV",
+            "SSLN": "AV",
+            "SSLS": "AV",
+            "SSLW": "AV",
+            "SLTK": "AV",
+            "TT01": "IM",
+            "TTA": "AT",
+
+            "VNBL": "AV",
+            "VNCG": "AV",
+            "VNDA": "AV",
+            "VNFG": "AV",
+            "VBNKR": "AV",
+            "VNHG": "AV",
+            "VNSG": "AV",
+            "VNMSO":"AV",
+            "VNSW": "AV",
+            "VNWF": "AV",
+
+            "WECS": "AV",
+            "WESE": "AV",
+            "WESP": "AV",
+            "WESS": "AV",
+            "WFAR" :"AV",
+            "WHTTR": "AV",
+            "WPOG": "AV",
+            "WTUG": "AV"
+
+        }
+        if station_name in STATION_MAPPINGS:
+            return STATION_MAPPINGS[station_name]
+        else:
+            return "AK"
+    def get_format_string(station_name: str, channel, start_time, end_time):
+        network_str = f"net={get_network_code(station_name)}"
         station_str = "sta={}".format(station_name)
         if channel is None:
             channel_str = None
@@ -75,7 +251,8 @@ def get_stream(station_name, channel: Optional[str], start_time, end_time):
         )
         database.commit()
         return read_waveform_from_database(station_name, channel, start_time, end_time, database)
-
+    if not is_station_valid(station_name):
+        raise InvalidStation(station_name)
     db = sqlite3.connect(WAVEFORMS_DATABASE)
     cursor = db.cursor()
     cursor.execute(

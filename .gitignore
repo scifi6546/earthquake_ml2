@@ -1,2 +1,6 @@
 events.db
 venv
+__pycache__
+all_events.db
+waveforms.db
+rust_figures

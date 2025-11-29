@@ -4,12 +4,12 @@ from scipy.signal import butter, lfilter, iirfilter, zpk2sos, sosfilt
 import matplotlib.pyplot as plt
 from pathlib import Path
 import rust_acceleration
-"""
-Questions:
-1. What is the bin frequency in both X and Y?
-2. What is the color scale?
-3.
-"""
+from event import Event, Site
+from obspy import UTCDateTime, Trace
+from waveforms import get_stream, InvalidStation, WaveformNotFound
+class LowFrequency(Exception):
+    def __init__(self, low_frequency, needed_freq):
+        pass
 def parse_matlab_data(raw_file):
     def error(error_str):
         print(error_str)
@@ -377,6 +377,142 @@ def save_station(station, skip_channels = ['BNE', 'BNN', 'BNZ', 'VM6']):
             )
             
           
+    pass
+
+class Pick:
+    _name: str
+    _time: UTCDateTime
+    def __init__(self,name:str, time:UTCDateTime):
+        self._name = name
+        self._time = time
+class InputStation:
+    _picks: list[Pick]
+    _waveforms = None
+    _stationName = str
+    def __init__(self, 
+        picks: list[(UTCDateTime, str)], 
+        station_name: str, 
+        lead_time_seconds: float = 8.0 * 60. * 60., 
+        trail_time_seconds: float = 1.0* 60. * 60.):
+        first_time = UTCDateTime("2209-12-31T12:23:34.5")
+        self._stationName = station_name
+        for time, phase in picks:
+            if time < first_time:
+                first_time = time
+        try:
+            self._waveforms = get_stream(station_name, None,first_time - lead_time_seconds, first_time + trail_time_seconds)
+        except InvalidStation  as e:
+            print("skipping station station_name as it is invalid")
+        except WaveformNotFound as e:
+            print(e)
+        self._picks = list(map(lambda x: Pick(x[1],x[0]),picks))
+        pass
+    def picks(self) -> list[Pick]:
+        return self.picks
+    def waveforms(self):
+        return self._waveforms
+    def stationName(self):
+        return self._stationName
+
+class HistogramInput:
+    _stations: list[InputStation]
+    def __init__(self, event: Event, max_distance = None):
+        """
+        Max distance is in meters
+        """
+        sites = {}
+        for pick in event.picks():
+            print(pick.site().stationName())
+            print(pick.phase())
+            print(pick.time())
+            distance = event.distance_from_site(pick.site())
+            print(f"distance: {distance}")
+            if max_distance is not None:
+                if distance > max_distance:
+                    continue
+            
+            if sites.get(pick.site().stationName()) is None:
+                sites[pick.site().stationName()] = {"site": pick.site(), "picks": []}
+            sites[pick.site().stationName()] ["picks"].append(pick)
+        self._stations = []
+        print(sites)
+        for site_name, site in sites.items():
+            input_station_picks = []
+            print(site)
+            for pick in site["picks"]:
+                
+                input_station_picks.append((pick.time(), pick.phase()))
+            self._stations.append(
+                InputStation(input_station_picks,site["site"].stationName())
+            )
+     
+
+    def stations(self) -> list[InputStation]:
+        return self._stations
+def trace_to_channel(trace: Trace):
+    return {
+        'data': trace.data, 
+        'channel': trace.stats['channel'],
+        'sample_rate': trace.stats['sampling_rate'],
+        'start_time': trace.stats['starttime'],
+        'end_time': trace.stats['endtime']
+    }
+
+def save_station_new(input: HistogramInput):
+    skip_channels =  ['BNE', 'BNN', 'BNZ', "LHE", "LHN", "LHZ", "LCE", 'VM6','LCQ', "LDI"]
+    for station in input.stations():
+        for trace in station.waveforms():
+            print(trace)
+            print(trace.stats)
+            channel = trace_to_channel(trace)
+            if trace.stats['channel'] in skip_channels:
+                print(f"skipping channel \"{trace.stats['channel']}\" ")
+                continue
+
+
+            bins = make_frequency_bins(channel)
+            for bin in bins:
+                # first the rust version
+                scaled_data = numpy.log(numpy.abs(bin['data']) + 1)
+                print(scaled_data)
+                
+                hist2d = rust_histogram_2d(scaled_data,10000, 100, channel['sample_rate'],[],channel['start_time'])
+    
+                center_of_mass = calculate_center_of_mass(hist2d)
+                spread = calculate_spread(hist2d)
+                frequency_str = ""
+                if len(bin["frequency_bin"]) == 2:
+                    frequency_str = f"{bin["frequency_bin"][0]}_{bin["frequency_bin"][1]}"
+                root_path = Path(f"rust_figures/{station.stationName()}/{channel["channel"]}")
+                root_path.mkdir(exist_ok=True, parents = True)
+                write_path = root_path / Path(f"{frequency_str}.png")
+
+                #color_scale = lambda x: numpy.log(x + 1.)
+                color_scale = lambda x: x
+                lines = [
+                    {"data": center_of_mass, "label": "center of mass"},
+                    {"data": spread, "label": "spread"}
+                ]
+
+                plot_histogram2d(
+                    channel['data'],
+                    hist2d, 
+                    write_path,
+
+                    lines = lines,
+                    color_scale_fn = color_scale
+                )
+
+
+        pass
+def histogram_from_event(event: Event, max_distance = None):
+    print(f"todo process event: {event}")
+    print(f"num picks: {len(event.picks())}")
+    for pick in event.picks():
+        print(f"\tpics: {pick.site().stationName()}")
+    histogram_input = HistogramInput(event, max_distance)
+    save_station_new(histogram_input)
+    
     pass
 if __name__ == '__main__':
     parsed = parse_matlab("events/event_0219nekhhk.mat")

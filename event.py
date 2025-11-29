@@ -6,6 +6,16 @@ import numpy
 from obspy.geodetics import gps2dist_azimuth
 from waveforms import get_stream
 from datetime import timedelta
+class InvalidOrigin(Exception):
+    _message: str
+    def __init__(self, message: str):
+        self._message =  message
+        super().__init__(self._message)
+class InvalidPick(Exception):
+    _message: str
+    def __init__(self, message: str):
+        self._message =  message
+        super().__init__(self._message)
 class Site:
     _station_name: str
     _latitude: float
@@ -37,8 +47,12 @@ class Pick:
     _site: Site
     def __init__(self, arid: int, cursor):
         result = cursor.execute("SELECT time, iphase, sta FROM arrival WHERE arid = ?;", (arid,))
+
         row = result.fetchone()
+        if row is None:
+            raise InvalidPick(f"pics do not exist for arrival: {arid}")
         self._time = UTCDateTime(row["time"])
+
         self._phase = row["iphase"]
         self._aridId = arid
         self._site = Site(row["sta"], cursor)
@@ -73,12 +87,21 @@ class Origin:
         magnidude_result = cursor.execute(
             "SELECT netmag.magnitude FROM origin JOIN netmag ON origin.mlid = netmag.magid WHERE origin.orid = ?;", (orid,))
         mag_row = magnidude_result.fetchone()
+        if mag_row is None:
+            raise InvalidOrigin("Event does not have a magnitude")
         self._magnitude = mag_row["magnitude"]
 
         result = cursor.execute("SELECT arid FROM assoc WHERE orid = ?;", (orid,))
-        self._pics = list(
-            map(lambda row: Pick(row["arid"], cursor), result.fetchall())
-        )
+        self._pics = []
+        for row in result.fetchall():
+            try:
+
+                self._pics.append(Pick(row["arid"], cursor))
+            except InvalidPick as e:
+                print(f"skipping pick: {row["arid"]} reason: {e}")
+
+        if len(self._pics) == 0:
+            raise InvalidOrigin(f"origin {self.originId()} has zero pics")
     def picks(self) -> list[Pick]:
         return self._pics
     def picksFilter(self, filter_function) -> list[Pick]:
@@ -159,18 +182,20 @@ class Event:
             end_time = UTCDateTime(end_time)
         event_database = sqlite3.connect(EVENT_DATABASE_PATH)
         cursor = event_database.cursor()
+        cursor.row_factory = sqlite3.Row
 
         if start_time is None and end_time is None:
             query = """
                     SELECT 
-                        origin.lat, origin.lon, origin.time, origin.ml 
+                    event.evid as evid
                     FROM event JOIN origin ON event.prefor = origin.orid
                 """
             cursor.execute(query)
         elif start_time is None and end_time is not None:
             query = """
                     SELECT 
-                        origin.lat, origin.lon, origin.time, origin.ml 
+                    event.evid as evid
+                       
                     FROM event JOIN origin ON event.prefor = origin.orid
                     WHERE event.time < ?
                 """
@@ -178,7 +203,8 @@ class Event:
         elif start_time is not None and end_time is None:
             query = """
                     SELECT 
-                        origin.lat, origin.lon, origin.time, origin.ml 
+                    event.evid as evid
+                       
                     FROM event JOIN origin ON event.prefor = origin.orid
                     WHERE origin.time > ?
                 """
@@ -186,7 +212,7 @@ class Event:
         elif start_time is not None and end_time is not None:
             query = """
                     SELECT 
-                        origin.lat, origin.lon, origin.time, origin.ml 
+                        event.evid as evid
                     FROM event JOIN origin ON event.prefor = origin.orid
                     WHERE origin.time > ? AND origin.time < ?
             """
@@ -196,8 +222,11 @@ class Event:
 
         res = cursor.fetchall()
 
+        for row in res:
+            try:
+                output_event = Event(row["evid"],cursor)
 
-        return list(
-            map(lambda row: Event(row[0], row[1], row[2], row[3]), res)
-        )
+                yield output_event
+            except InvalidOrigin as e:
+                print(f"skipping evid: {row["evid"]} reason: {e}")
 
