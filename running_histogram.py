@@ -336,48 +336,6 @@ def make_frequency_bins(channel,):
     return output_data
 
 
-def save_station(station, skip_channels = ['BNE', 'BNN', 'BNZ', 'VM6']):
-    for channel in station['channels']:
-
-        if channel['channel'] in skip_channels:
-            print(f"skipping channel \"{channel['channel']}\" ")
-            continue
-
-
-        bins = make_frequency_bins(channel)
-        for bin in bins:
-            # first the rust version
-            scaled_data = numpy.log(numpy.abs(bin['data']) + 1)
-            print(scaled_data)
-            hist2d = rust_histogram_2d(scaled_data,10000, 100, channel['sample_rate'],[parsed["time"]],channel['start_time'])
- 
-            center_of_mass = calculate_center_of_mass(hist2d)
-            spread = calculate_spread(hist2d)
-            frequency_str = ""
-            if len(bin["frequency_bin"]) == 2:
-                frequency_str = f"{bin["frequency_bin"][0]}_{bin["frequency_bin"][1]}"
-            root_path = Path(f"rust_figures/{station['station']}/{channel["channel"]}")
-            root_path.mkdir(exist_ok=True, parents = True)
-            write_path = root_path / Path(f"{frequency_str}.png")
-
-            #color_scale = lambda x: numpy.log(x + 1.)
-            color_scale = lambda x: x
-            lines = [
-                {"data": center_of_mass, "label": "center of mass"},
-                {"data": spread, "label": "spread"}
-            ]
-
-            plot_histogram2d(
-                channel['data'],
-                hist2d, 
-                write_path,
-           
-                lines = lines,
-                color_scale_fn = color_scale
-            )
-            
-          
-    pass
 
 class Pick:
     _name: str
@@ -458,7 +416,7 @@ def trace_to_channel(trace: Trace):
         'end_time': trace.stats['endtime']
     }
 
-def save_station_new(input: HistogramInput):
+def save_station(input: HistogramInput):
     skip_channels =  ['BNE', 'BNN', 'BNZ', "LHE", "LHN", "LHZ", "LCE", 'VM6','LCQ', "LDI"]
     for station in input.stations():
         for trace in station.waveforms():
@@ -511,13 +469,6 @@ def histogram_from_event(event: Event, max_distance = None):
     for pick in event.picks():
         print(f"\tpics: {pick.site().stationName()}")
     histogram_input = HistogramInput(event, max_distance)
-    save_station_new(histogram_input)
+    save_station(histogram_input)
     
     pass
-if __name__ == '__main__':
-    parsed = parse_matlab("events/event_0219nekhhk.mat")
-
-    skip_channels=['BNE', 'BNN', 'BNZ', 'VM6']
-
-    for station in parsed['stations']:
-        save_station(station)
